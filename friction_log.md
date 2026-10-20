@@ -1,25 +1,40 @@
 # 📋 Shopexa Ops: Official Developer Friction Log & Feature Requests
 *Prepared for the Amazon Developer Hackathon Reviewers & Judging Panel*
-
-> [!NOTE]
-> Per hackathon guidelines: *"Friction log entries for each one: the task you attempted, the steps you took, what you expected vs. what actually happened, a severity rating, any workaround you used, and an actionable suggestion. Submissions with friction logs can earn up to a 10% judging bonus."*
+*Track: Alexa+ | Mini-Challenges: AWS Builder & Open Source*
 
 ---
 
 ## 🛠️ Structured Friction Log Entries
 
 ### Entry 1: Mounting MCP Streamable HTTP (Spec 2025-11-25+) within FastAPI ASGI Lifecycles
-* **Task Attempted:** Exposing a self-hosted Model Context Protocol (MCP) server over Streamable HTTP (spec 2025-11-25 or later) alongside FastAPI WebSockets and static assets on a single unified server port.
+* **Task Attempted:** Exposing a self-hosted Model Context Protocol (MCP) server over Streamable HTTP (spec 2025-11-25 / 2024-11-05) alongside FastAPI WebSockets and static assets on a single unified server port.
 * **Steps Taken:**
   1. Implemented procurement MCP tools (`get_unread_notifications`, `create_payable_order`, `authorize_order`, etc.) using `mcp.server.MCPServer`.
   2. Attempted to mount the MCP ASGI application into FastAPI via `app.mount("/mcp", mcp.streamable_http_app())`.
-  3. Tested HTTP/2 and SSE connections from agent clients.
+  3. Tested HTTP/2 and SSE connections using `curl` and MCP client tools.
 * **Expected vs. Actual:**
-  - *Expected:* Standard ASGI router mount where `/mcp` endpoints seamlessly inherit FastAPI middleware (CORS, lifespan, exception handling).
-  - *Actual:* The MCP Python SDK's `MCPServer` generates an internal Starlette instance whose subpath routing and SSE headers require explicit prefix awareness. If mounted without exact trailing slash coordination, client handshakes return 404 or drop the stream.
-* **Severity Rating:** **Medium (Developer Onboarding Friction)**
-* **Workaround Used:** Integrated conditional transport mounting in `main.py` inspecting both `streamable_http_app()` (Streamable HTTP spec 2025-11-25+) and `sse_app()` with unified CORS middleware and isolated exception handling.
-* **Actionable Suggestion for Amazon / MCP Team:** Provide a first-class `mcp.server.fastapi.MCPRouter` or standard Starlette router export in the official Python SDK to make HTTP mounting a one-liner (`app.include_router(mcp.router, prefix="/mcp")`).
+  - *Expected:* Standard ASGI sub-application mounting where `/mcp` endpoints seamlessly inherit FastAPI lifespan and serve requests at `http://host/mcp`.
+  - *Actual:* Two distinct friction points occurred:
+    1. **Lifespan Task Group Failure:** FastAPI/Starlette does not invoke the lifespan of mounted sub-applications. Because the sub-app's lifespan never executed, the SDK's `StreamableHTTPSessionManager` task group was never started, causing the first incoming request to crash with:  
+       `RuntimeError: Task group is not initialized. Make sure to use run().`
+    2. **Double Path Prefix (`/mcp/mcp`):** The Starlette instance returned by `streamable_http_app()` hardcodes `/mcp` into its internal router. Mounting at `app.mount("/mcp", ...)` produced `/mcp/mcp` while requests to `/mcp` or `/mcp/` returned `404 Not Found`.
+* **Severity Rating:** **High (Architecture & Protocol Onboarding Blocker)**
+* **Workaround Used:**
+  1. Updated the host FastAPI application's `lifespan` context manager to explicitly enter the MCP task group:
+     ```python
+     @asynccontextmanager
+     async def lifespan(app: FastAPI):
+         db.init_db()
+         if hasattr(mcp, "session_manager"):
+             async with mcp.session_manager.run():
+                 yield
+         else:
+             yield
+     ```
+  2. Mounted `mcp_subapp` at the root (`app.mount("/", mcp_subapp)`) at the bottom of the route stack, allowing `/` + `/mcp` to expose the endpoint natively at clean `http://host/mcp` with full SSE framing support (`event: message\ndata: {...}`).
+* **Actionable Suggestion for Amazon / MCP Team:** 
+  1. Export a native `mcp.server.fastapi.MCPRouter` or standard Starlette router so developers can use `app.include_router(mcp.router, prefix="/mcp")` without sub-app lifespan isolation issues.
+  2. Allow `streamable_http_app(path="/")` to accept custom root paths so developers aren't forced into `/mcp/mcp` when mounting at `/mcp`.
 
 ---
 
@@ -37,51 +52,47 @@
 
 ---
 
-### Entry 3: Ambient Room Voice False-Triggering & Speaker Acoustic Echo Barge-In
-* **Task Attempted:** Continuous listening for smart display voice interaction while the assistant simultaneously speaks briefings and order confirmations.
-* **Steps Taken:** Enabled browser microphone streaming with continuous speech recognition (`webkitSpeechRecognition` + Web Audio API ScriptProcessor).
+### Entry 3: Speaker Acoustic Echo Barge-In & Semantic False-Triggering
+* **Task Attempted:** Maintaining continuous ambient listening for hands-free smart display interaction while the assistant simultaneously speaks briefings, price spike alerts, and order confirmations.
+* **Steps Taken:** Streamed 16kHz microphone audio continuously to Bedrock Nova Sonic.
 * **Expected vs. Actual:**
-  - *Expected:* Clean barge-in when a user speaks over the assistant.
-  - *Actual:* Speaker output from the laptop speakers was immediately captured by the microphone, transcribing the AI's own voice as user input, creating an acoustic feedback loop that prematurely canceled speech playback.
+  - *Expected:* Clean barge-in only when the user intentionally speaks over the assistant.
+  - *Actual:* Two major false-triggering modes occurred:
+    1. **Acoustic Speaker Echo Loop:** Laptop speaker output was immediately recaptured by the microphone. Bedrock Nova Sonic heard its own voice, interpreted it as user speech, and triggered an internal `{ "interrupted": true }` barge-in, cutting off its own speech mid-sentence.
+    2. **Passive Narration False-Triggering:** During the pitch hook, saying *"...a verified solution is ready to be authorized"* contained the word *authorized*. Loose keyword classifiers mistook this passive statement for an imperative command, prematurely dispatching un-staged purchase orders to Nova Pro.
 * **Severity Rating:** **High (User Experience & Demo Disruption)**
 * **Workaround Used:**
-  1. Added WebRTC audio constraints: `{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }`.
-  2. Gated microphone audio frames during active speech output (`if (isSpeaking || playingAudio) return;`).
-  3. Engineered an **Attention & Addressing Gate** (`attention_gate.py`) that analyzes conversational syntax in real-time, categorizing utterances into direct commands (`DIRECT_COMMAND`) vs. bystander chatter (`BYSTANDER_CHATTER`) or presenter narration to judges (`JUDGE_NARRATION`).
-* **Actionable Suggestion for Alexa+ Team:** Ship an official Web Simulator Audio Bridge NPM package with built-in reference-signal software echo cancellation and wake-word verification.
+  1. **EchoGuard Gating:** Implemented a hardware-level gate in `audio.js` that mutes outbound PCM frames while Nova Sonic is generating speech, combined with a 400ms acoustic room cooldown.
+  2. **Imperative Syntax Classifier (`attention_gate.py`):** Replaced loose regexes with strict grammatical classification: requires explicit leading action verbs (*"Authorize purchase order"*, *"Option 1"*) or direct wake words (*"Alexa"*, *"Shopexa"*), while shielding passive narrative speech (*"ready to be authorized"*) into `action: "STANDBY"`.
+* **Actionable Suggestion for Alexa+ Team:** Ship an official Web Simulator Audio Bridge package with reference-signal software echo cancellation (AEC) and an integrated syntactic addressing classifier.
 
 ---
 
 ### Entry 4: Conversational State Suspension During Unprompted Proactive Alerts
-* **Task Attempted:** Triggering an ambient supplier price spike or past-purchase discount alert while a user is actively reviewing or staging a purchase order.
-* **Steps Taken:** Pushed an ambient alert card directly into the smart display DOM viewport when an external supplier price change occurred.
+* **Task Attempted:** Triggering an autonomous supplier price spike alert while a user is actively reviewing or staging a purchase order.
+* **Steps Taken:** Pushed an ambient alert card directly into the smart display DOM viewport when a background supplier price increase was detected.
 * **Expected vs. Actual:**
   - *Expected:* The user should be able to evaluate the alert, dismiss it, and seamlessly return to their uncompleted order.
   - *Actual:* The alert card completely overwrote the staged order in memory, destroying multi-turn context and forcing the user to start over.
 * **Severity Rating:** **Medium (Workflow Disruption)**
-* **Workaround Used:** Implemented an **Interaction State Machine with an Interruption Stack (LIFO)**. When an ambient interruption occurs that matches the active product, the active state (Order ID, Amount, Product, exact DOM card snapshot) is pushed onto a stack. A topbar badge (`1 Suspended (COFFEE)`) appears, and saying *"Back to my order"* or clicking *"Dismiss"* immediately pops the snapshot and delivers a natural voice bridge (*"Returning to your staged coffee order totaling $33.00. Ready to authorize."*). Unrelated alerts are queued in the Notice Tray without disrupting the active order.
+* **Workaround Used:** Implemented an **Interaction State Machine with an Interruption Stack (LIFO)**. When an ambient interruption occurs, the active state (Order ID, Amount, Product, exact DOM card snapshot) is pushed onto a stack. A topbar badge (`1 Suspended (ITEM)`) should appear, and saying *"Back to my order"* or clicking *"Dismiss"* immediately pops the snapshot and delivers a natural voice bridge (*"Returning to your staged coffee order totaling $33.00. Ready to authorize."*).
 * **Actionable Suggestion for Alexa+ Team:** Add native session suspend/resume primitives (`session.suspend()`, `session.resume()`) to the Alexa+ Agent Skill SDK so background ambient interruptions preserve active conversational contexts automatically.
 
 ---
 
-### Entry 5: Cascaded TTS Masking Duplex Audio Health & Smithy EventStream Teardown Deadlock
-* **Task Attempted:** Validating that Amazon Nova Sonic (`amazon.nova-2-5-sonic`) is actively handling bidirectional speech-to-speech streaming, and cleanly closing/reopening streams during session restarts.
-* **Steps Taken:**
-  1. Connected browser microphone to Bedrock's `InvokeModelWithBidirectionalStream`.
-  2. Simultaneously maintained a fallback Amazon Polly TTS pipeline.
-  3. Attempted to close and reconnect sessions using `await stream_response.close()`.
+### Entry 5: Python 3.14 `awscrt` Cancelled Future Bug During Teardown
+* **Task Attempted:** Cleanly terminating Bedrock bidirectional duplex sessions when a user disconnects or refreshes the browser page.
+* **Steps Taken:** Called `stream_response.close()` inside task cancellation handlers.
 * **Expected vs. Actual:**
-  - *Expected:* We would hear Nova Sonic's native audio output, and `stream_response.close()` would terminate the stream cleanly within milliseconds.
-  - *Actual:* Two critical friction points occurred:
-    1. Cascaded Polly TTS masked underlying Nova Sonic streaming failures—audio continued to play via Polly even when the Nova Sonic duplex event stream was broken or unestablished.
-    2. In `smithy_core.aio.eventstream.DuplexEventStream`, calling `await stream_response.close()` hung indefinitely if the generator was awaiting incoming CRT frames or if unconsumed events remained in the buffer.
-* **Severity Rating:** **High (Architecture & Session Lifecycle Blocker)**
+  - *Expected:* The stream terminates silently within milliseconds.
+  - *Actual:* In Python 3.14, task cancellation transitions internal `asyncio.Future` objects into the `CANCELLED` state. When the background C-thread of `awscrt` received the final connection termination frame, `awscrt.aio.http._on_body` called `future.set_result(chunk)` on the cancelled future, crashing with:  
+    `concurrent.futures._base.InvalidStateError: CANCELLED`  
+    `Treating Python exception as error 3(AWS_ERROR_UNKNOWN)`
+* **Severity Rating:** **High (Unclean Server Crashes on Session Close)**
 * **Workaround Used:**
-  1. Completely removed Amazon Polly from the runtime path, forcing the system to rely exclusively on pure, native Nova Sonic speech-to-speech audio streaming.
-  2. Decoupled downstream audio receiving into a dedicated asynchronous worker task and wrapped stream teardown in `asyncio.wait_for(stream_response.close(), timeout=1.0)` to prevent event-loop hangs.
-* **Actionable Suggestion for AWS Bedrock Team:**
-  1. Provide explicit stream liveness/heartbeat callbacks in the Bedrock SDK so developers know with certainty when the foundation model's speech engine is connected and streaming audio vs. silent.
-  2. Implement an asynchronous timeout or cancellation token within `DuplexEventStream.close()` in `smithy_core` so closing an idle or unconsumed stream cannot deadlock the Python event loop.
+  1. Applied an in-memory runtime patch to `awscrt.aio.http._on_body` that checks `if fut.cancelled(): return` before attempting to set results on dead futures.
+  2. Implemented strict teardown sequencing: explicitly close `stream_response.input_stream` and await `stream_response.close()` *before* cancelling worker tasks.
+* **Actionable Suggestion for AWS SDK Team:** Update `awscrt.aio.http` to check `if not future.done() and not future.cancelled():` before calling `.set_result()` to ensure Python 3.14 compliance.
 
 ---
 
@@ -89,7 +100,10 @@
 
 | Feature Request | Target Platform | Urgency | Why It Matters |
 | :--- | :--- | :--- | :--- |
-| **Native FastAPI Router Export** | MCP Python SDK | **Critical** | Simplifies exposing MCP tools over Streamable HTTP in existing enterprise web applications from 40 lines of boilerplate to 1 line. |
+| **Native FastAPI Router Export** | MCP Python SDK | **Critical** | Eliminates sub-app lifespan isolation bugs (`Task group is not initialized`) and enables one-line mounting. |
+| **Priority Queue / Atomic Batching in Bedrock Duplex Streams** | AWS Bedrock SDK (`smithy_core`) | **Critical** | Prevents HTTP/2 backpressure deadlocks when multiplexing real-time audio with asynchronous tool results. |
+| **Python 3.14 `awscrt` Cancellation Guard** | AWS Common Runtime (`awscrt`) | **High** | Prevents unhandled `InvalidStateError` crashes when WebSocket clients refresh or disconnect. |
 | **Conversational State Suspension Primitives** | Alexa+ / Agent Skills | **Important** | Essential for proactive, ambient assistants that interrupt users with urgent supply alerts without wiping in-flight task progress. |
 | **Official Web Audio Echo-Cancellation Bridge** | Alexa Developer Tools | **Important** | Prevents microphone self-triggering in browser-based smart display simulators, dramatically improving demo reliability. |
 | **Non-Blocking Duplex Stream Teardown & Liveness Signals** | AWS Bedrock SDK (`smithy_core`) | **Critical** | Prevents deadlocks during bidirectional audio session teardown and eliminates the temptation to use cascaded TTS workarounds. |
+
