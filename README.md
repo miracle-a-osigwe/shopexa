@@ -55,7 +55,7 @@
 ### 2. Installation
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/shopexa-ops.git
+git clone https://github.com/miracle-a-osigwe/shopexa-ops.git
 cd shopexa-ops
 
 # Create and activate virtual environment
@@ -111,27 +111,6 @@ python tests/test_resume_state.py
 | **Voice Resume** | *"Back to my order"* | **Pops** coffee order from stack, restores DOM card, and announces: *"Returning to your staged order..."* |
 | **IAM Authorization** | *"Authorize purchase order"* | Dispatches order via AWS IAM role `shopexa-agent` and displays digital receipt. |
 | **Attention Gate Test** | *"Judges, notice the telemetry HUD..."* | AI detects presenter aside, enters attentive standby, and does not fire accidental commands. |
-
----
-
-## 📄 Submission Documents & Deliverables
-
-* **Devpost Submission Description:** [`docs/DEVPOST_SUBMISSION.md`](docs/DEVPOST_SUBMISSION.md)
-* **2.5-Minute Demo Video Script:** [`docs/DEMO_VIDEO_SCRIPT.md`](docs/DEMO_VIDEO_SCRIPT.md)
-* **Official Product Feedback:** [`docs/AMAZON_FEEDBACK.md`](docs/AMAZON_FEEDBACK.md)
-* **Structured Friction Log (10% Bonus):** [`friction_log.md`](friction_log.md)
-
----
-
-## 👥 Hackathon Reviewer Collaborators
-Per the hackathon requirements, the following Amazon Developer Relations and judging team profiles are invited as collaborators:
-* `chris-trag`
-* `knmeiss` (Kourtney Meiss)
-* `giolaq` (Giovanni Laquidara)
-* `anishamalde` (Anisha Malde)
-* `mosesroth` (Moses Roth)
-* `emersonsklar` (Emerson Sklar)
-* `testing@devpost.com`
 
 ---
 
