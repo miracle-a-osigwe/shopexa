@@ -42,49 +42,7 @@
 ---
 
 ## 🏛️ Architecture
-
-```mermaid
-graph TD
-    subgraph Frontend ["Alexa+ Smart Display Simulator (Browser)"]
-        UI["3D Glassmorphic Echo Show UI"]
-        Audio["24kHz LPCM Playback & Barge-In Detection"]
-        HUD["Live MCP Telemetry HUD"]
-        StackBadge["Interruption Stack Badge (e.g. 1 Suspended)"]
-        AttnBadge["Attention Indicator (Direct vs Standby)"]
-    end
-
-    subgraph StateEngine ["Interaction State Machine"]
-        SM["InteractionManager (LIFO Stack)"]
-        Snapshot["DOM & Order Snapshot Cache"]
-    end
-
-    subgraph Attention ["Attention & Addressing Gate"]
-        Gate["attention_gate.py Classifier"]
-    end
-
-    subgraph BedrockLayer ["AWS Bedrock & Native Speech"]
-        NovaSonic["Amazon Nova Sonic (Speech-to-Speech amazon.nova-2-5-sonic)"]
-        NovaPro["Amazon Nova Pro (Reasoning & MCP amazon.nova-pro-v1:0)"]
-    end
-
-    subgraph MCPLayer ["Self-Hosted MCP Server (Spec 2025-11-25+)"]
-        MCPServer["mcp_server.py (Streamable HTTP & SSE)"]
-        Tools["Procurement Toolset (Search, Orders, IAM)"]
-        DB[("SQLite Database (Products, Suppliers, Orders)")]
-    end
-
-    UI -- "16kHz PCM Stream /ws/voice" --> Gate
-    Gate -- "Bystander / Aside" --> AttnBadge
-    Gate -- "Direct Command" --> NovaSonic
-    NovaSonic <--> NovaPro
-    NovaPro -- "JSON-RPC (Streamable HTTP)" --> MCPServer
-    MCPServer --> Tools --> DB
-    Tools -- "Structured Result" --> NovaPro
-    NovaPro -- "Live Telemetry" --> HUD
-    NovaSonic -- "24kHz LPCM Native Audio" --> Audio
-    SM <--> Snapshot
-    SM --> StackBadge
-```
+![Shopexa Ops Architecture](assets/Shopexa_Ops.webp)
 
 ---
 
