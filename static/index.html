@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shopexa Ops — Alexa+ Native Voice</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- Audio Playback Output -->
+  <audio id="audio-out" autoplay></audio>
+
+  <div class="scene">
+
+    <!-- Main Alexa+ Panel -->
+    <div class="main-panel">
+      <div class="alexa-ring" id="alexa-ring"></div>
+
+      <!-- Top Bar -->
+      <header class="topbar" style="gap: 8px;">
+        <!-- Zone 1: Brand & Engine -->
+        <div class="topbar-left" style="gap: 10px;">
+          <div class="brand">
+            <div class="brand-name">Alexa<span>+</span></div>
+          </div>
+          <div class="model-badge" id="model-badge" title="Active Voice & Reasoning Engine">
+            <i class="fas fa-bolt" style="color:var(--accent);"></i>
+            <span id="model-badge-text">Nova Sonic + Pro</span>
+          </div>
+        </div>
+
+        <!-- Zone 2: Dynamic Alerts & Suspended Orders -->
+        <div class="topbar-center" style="gap: 16px;">
+          <div id="stack-badge" class="topbar-chip chip-purple" style="display:none;" onclick="InteractionManager.popAndResume()" title="Click to resume suspended task">
+            <i class="fas fa-pause-circle"></i> <span id="stack-badge-text">1 Task Suspended</span>
+          </div>
+          <div class="attention-badge" id="attention-badge" title="Attention & Addressing Classifier" style="display:none;">
+            <i class="fas fa-bullseye"></i> <span id="attn-label">Addressing Alexa</span>
+          </div>
+        </div>
+
+        <!-- Zone 3: Controls & Clock -->
+        <div class="topbar-right" style="gap: 10px;">
+          <div class="topbar-controls-group">
+            <button class="topbar-pill-btn active" id="ambient-loop-toggle" onclick="toggleAmbientLoop()" title="Toggle Autonomous Proactive Intelligence">
+              <span class="control-dot"></span> <span id="ambient-loop-text">Proactive</span>
+            </button>
+            <button class="topbar-pill-btn" id="presenter-toggle" onclick="togglePresenterMode()" title="Toggle Demo Mode for Hackathon Judges">
+              <i class="fas fa-graduation-cap"></i> <span id="pm-state">Demo</span>
+            </button>
+          </div>
+          <div class="clock" id="clock" style="min-width: 50px; font-size: 1.15rem;">00:00</div>
+        </div>
+      </header>
+
+      <!-- Presenter Demo Cue Bar -->
+      <div class="presenter-banner" id="presenter-banner" style="display:none;">
+        <div class="pb-header">
+          <div class="pb-title"><i class="fas fa-chalkboard-teacher"></i> <strong>JUDGE DEMO MODE</strong> — Dual Audience Active (Explaining to Judges vs. Direct Alexa)</div>
+          <div class="pb-status" id="pb-status">Ready</div>
+        </div>
+        <div class="pb-cues">
+          <button class="pb-cue-btn" onclick="runPresenterCue('step1')">
+            <span class="cue-num">1</span> Unread Alerts (MCP)
+          </button>
+          <button class="pb-cue-btn" onclick="runPresenterCue('step2')">
+            <span class="cue-num">2</span> ⚡ Proactive Price / Deal
+          </button>
+          <button class="pb-cue-btn" onclick="runPresenterCue('step3')">
+            <span class="cue-num">3</span> Restock Coffee (Tool Chain)
+          </button>
+          <button class="pb-cue-btn" onclick="runPresenterCue('step4')">
+            <span class="cue-num">4</span> Demo Aside (Narration Test)
+          </button>
+        </div>
+      </div>
+
+      <div class="content main-content-split">
+        
+        <!-- Left Column: Voice Interaction & Dialogue Stream Area -->
+        <div class="voice-stream-column" id="voice-stream-column">
+          <!-- Orb -->
+          <div class="orb-container" id="orb" onclick="toggleVoice()">
+            <div class="orb-ring"></div>
+            <div class="orb-ring"></div>
+            <div class="orb-ring"></div>
+            <div class="orb-core">
+              <i class="fas fa-microphone orb-icon" id="orb-icon"></i>
+            </div>
+            <div class="voice-wave">
+              <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+              <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+              <div class="wave-bar"></div>
+            </div>
+          </div>
+
+          <div class="orb-status" id="orb-status">Tap to Speak</div>
+
+          <!-- Voice Caption Bar (Subtitles Overlay) -->
+          <div class="voice-caption-bar" id="voice-caption-bar" style="display:none;">
+            <div class="vcb-avatar"><i class="fas fa-satellite-dish"></i></div>
+            <div class="vcb-text" id="voice-caption-text"></div>
+          </div>
+
+          <!-- Dedicated Dialogue & Real-time Text Streaming Viewport (Never displaced by cards) -->
+          <div class="dialogue-container" id="dialogue-container">
+            <div class="user-bubble-wrapper" id="user-bubble-wrapper" style="display:none;">
+              <div class="user-query-pill" id="user-speech-bubble">
+                <i class="fas fa-comment-dots"></i> <span id="user-speech-text"></span>
+              </div>
+            </div>
+            
+            <div class="agent-dialogue-bubble" id="assistant-speech-bubble">
+              <!-- Live speech and assistant responses stream here -->
+            </div>
+
+            <div class="hint-grid" id="hint-grid" style="display:flex; justify-content:center;">
+              <!-- Dynamically populated hints -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Action & Intelligence Dock (Takes half for Active Notices, half under it for Cards) -->
+        <div class="action-dock-column" id="action-dock-column">
+          
+          <!-- Top Half: Active Notices Tray -->
+          <div class="dock-half interrupt-tray-half" id="interrupt-tray">
+            <div class="dock-header">
+              <span><i class="fas fa-inbox text-amber-400"></i> Active Notices</span>
+              <span class="dock-badge" id="notices-count-badge">0 Active</span>
+            </div>
+            <div class="dock-scroll-body" id="interrupt-list">
+              <div id="interrupt-empty" class="dock-empty-placeholder">
+                <i class="fas fa-check-circle"></i>
+                <span>No pending interrupts</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Half: Interactive Cards Viewport (Uses space under Active Notices) -->
+          <div class="dock-half cards-viewport-half" id="cards-viewport">
+            <div class="dock-header">
+              <span><i class="fas fa-layer-group text-cyan-400"></i> Interactive Workspace</span>
+              <span class="dock-badge" id="card-status-badge">Idle</span>
+            </div>
+            <div class="dock-scroll-body" id="cards-scroll-body">
+              <div id="card-empty-placeholder" class="dock-empty-placeholder">
+                <i class="fas fa-clipboard-list"></i>
+                <span>Spoken inventory queries, staged orders, and price options will appear here.</span>
+              </div>
+              <div class="response-content" id="response-content"></div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Bottom Actions: Keyboard Launcher Pill -->
+      <div class="bottom-actions">
+        <button class="keyboard-pill" onclick="toggleKeyboardInput()" title="Open Keyboard Input">
+          <i class="fas fa-keyboard"></i> Type with keyboard
+        </button>
+      </div>
+
+      <!-- Floating Keyboard Drawer -->
+      <div class="keyboard-drawer" id="keyboard-drawer" style="display:none;">
+        <div class="kd-inner">
+          <div class="kd-header">
+            <div class="kd-title"><i class="fas fa-keyboard"></i> Keyboard Input · Nova Pro & MCP</div>
+            <button class="kd-close" onclick="toggleKeyboardInput(false)" title="Close Keyboard (Esc)"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="kd-input-row">
+            <input type="text" id="keyboard-input" placeholder="Type prompt or presenter aside (e.g. 'Judges, notice how...')" onkeydown="if(event.key==='Enter') submitKeyboardInput(); if(event.key==='Escape') toggleKeyboardInput(false);" />
+            <button class="kd-send" onclick="submitKeyboardInput()" title="Send"><i class="fas fa-paper-plane"></i></button>
+          </div>
+          <div class="kd-hints">
+            <span class="kd-hint-chip" onclick="applyKeyboardHint('Alexa, what did I miss?')">What did I miss?</span>
+            <span class="kd-hint-chip" onclick="applyKeyboardHint('Check inventory levels')">Inventory</span>
+            <span class="kd-hint-chip" onclick="applyKeyboardHint('Order the coffee we got last time')">Restock Coffee</span>
+            <span class="kd-hint-chip" onclick="applyKeyboardHint('Judges, notice how our smart display monitors supplier feeds.')">Judge Aside</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidecar Diagnostics & MCP HUD -->
+    <div class="sidecar">
+      <div class="sidecar-tabs">
+        <div class="stab active" id="stab-hud" onclick="switchTab('hud')">MCP Stream</div>
+        <div class="stab" id="stab-ambient" onclick="switchTab('ambient')">Ambient</div>
+      </div>
+
+      <div class="spanel active" id="spanel-hud">
+        <div style="color:#374151;font-size:0.78rem;text-align:center;padding:20px;" id="hud-empty">
+          <i class="fas fa-satellite-dish" style="font-size:1.8rem;margin-bottom:10px;display:block;opacity:0.4"></i>
+          Tap the orb to start a voice session.<br>MCP events will stream here.
+        </div>
+      </div>
+
+      <div class="spanel" id="spanel-ambient">
+        <button class="sim-btn" onclick="fireAmbient('random')">⚡ Trigger Ambient Event</button>
+        <div id="ambient-log"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Modular Scripts: Components -> Audio Engine -> Core Orchestrator -->
+  <script src="/static/js/components.js"></script>
+  <script src="/static/js/audio.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
